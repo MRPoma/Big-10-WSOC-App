@@ -536,6 +536,8 @@ def main():
         "Team Attacking Corners": AttCorner,
         "Team Defensive Corners": DefCorner,
         "Team Goal Kicks": TeamGoalKicks,
+        "Opposition PassSonar": OppPassSonar,
+        "Opposition Passing Engine": OppPassingEngine,
         "Player Shots": PlayerShot,
         "Goalkeeper Shot Map": GKShotMap,
         "Player Pass": PlayerPass,
@@ -2445,6 +2447,494 @@ def TeamPassSonar(state):
     leg = plt.legend(loc=0, ncol=3,frameon=False)
     plt.setp(leg.get_texts(), color='black', fontproperties=Labels)
     st.pyplot(fig)
+
+def OppPassSonar(state):    
+    sm_df = load_sm_data()
+    
+    team = st.sidebar.multiselect('Select Team(s)', natsorted(sm_df.Team.unique()))
+    sm_df = sm_df[sm_df['Team'].isin(team)]
+    
+    
+    season = st.sidebar.multiselect('Select Season(s)',natsorted(sm_df.Season.unique()))  
+    sm_df = sm_df[sm_df['Season'].isin(season)]
+    
+    pass_df = load_pass_data(season, team, 'yes')
+        
+
+    matches = (pass_df.MatchName.unique()).tolist()
+    
+    match = st.sidebar.multiselect("Select Match(es)", natsorted(pass_df.MatchName.unique()), default=matches)
+    match_df = pass_df[pass_df['MatchName'].isin(match)]
+    
+    matchesid = (match_df.MatchID.unique()).tolist()
+    
+    matchid = st.sidebar.multiselect("Select Match(es)", natsorted(match_df.MatchID.unique()), default=matchesid)
+    match_df = match_df[match_df['MatchID'].isin(matchid)]        
+
+
+
+    st.header("Team PassSonar")  
+    st.subheader("By xPR, By Length of Pass, Pass Map within Zone")    
+    st.text("")
+
+    
+    def AdvPassSonar(match_df):
+        Passes = match_df[match_df['ifSP'] != 1]
+        def Pass(zone):
+    
+            #local_df = Pass.copy(deep=True)
+            local_df = Passes[(Passes["Zone"]==zone)]
+            #local_df['Angle'] = np.arctan2((local_df['DestY'] - local_df['Y']), (local_df['DestX'] - local_df['X']))
+            local_df = pd.DataFrame(data=local_df, columns=['Angle', 'Length', 'ifPass', 'Team', 'Zone', 'ifComplete', 'xP'])
+            local_df = local_df.dropna(axis=1, how="all")
+    
+            for i in range(25):
+                local_df = local_df.append({'Angle': 0,'Length': 15,'ifPass': 0, 'Zone': i, 'ifComplete':0, 'xP':0}, ignore_index=True)
+            
+            df1 = local_df[['Angle','Length', 'ifPass', 'ifComplete', 'xP']].copy()
+            
+            bins = np.linspace(-np.pi,np.pi,24)
+            df1['binned'] = pd.cut(local_df['Angle'], bins, include_lowest=True, right = True)
+            df1["Bin"] = df1["binned"].apply(lambda x: x.mid)
+            df1 = df1[:-1]
+ 
+           
+            A= df1.groupby("Bin", as_index=False)["ifComplete"].mean()
+            A = df1.groupby('Bin', as_index=False).agg({'ifComplete': 'mean', 'ifPass' : 'sum', 'xP':'mean', 'Length':'mean'}) 
+            A['xPR'] = A['ifComplete'] / A['xP']
+            A = A.dropna(0)
+            
+            return A
+        
+      
+        fig,ax = plt.subplots(figsize=(32,18))
+        plt.title(str(season)+' - '+str(team)+" PassSonar Color by xPR", fontproperties=headers, color="black")
+        norm = plt.Normalize(0.9, 1.1) 
+        cmap = plt.cm.RdYlBu
+        sm = mpl.cm.ScalarMappable(cmap=cmap, norm=norm)
+        sm.set_array([])
+        cbar = fig.colorbar(sm, orientation="horizontal", fraction=0.046, pad=0.04)
+        cbar.ax.set_title('xPR', fontproperties=footers, color='black')
+        
+        def plot_inset(width, axis_main, data, x,y):
+             ax_sub= inset_axes(axis_main, width=width, height=width, loc=10,
+                               bbox_to_anchor=(x,y),
+                               bbox_transform=axis_main.transData, 
+                               borderpad=0.0, axes_class=get_projection_class("polar"))
+             
+             #passdata = Passes[(Passes['Player'].str.contains(player))]
+             pasd = Passes.groupby("MatchID").agg({"Team": 'nunique'})
+             mp = pasd.sum()
+             totp = Passes.groupby("MatchID").agg({'ifPass':'sum'})
+             tp = totp.max()
+
+             
+             theta = data["Bin"]
+             radii = data["ifPass"]
+             length = np.array(data["xPR"])
+             #data['xPR'] = data['ifComplete'] / data['xP']
+             cma = cmap(norm(length))
+             bars = ax_sub.bar(theta, radii, width=.265, edgecolor='black', linewidth=1.5, bottom=0)
+             ax_sub.set_xticklabels([])
+             ax_sub.set_yticklabels([])
+             #ax_sub.set_ylim(0,mp.sum()*3.5)
+             ax_sub.set_ylim(0,tp.sum()/50)
+             ax_sub.yaxis.grid(False)
+             ax_sub.xaxis.grid(False)
+             ax_sub.spines['polar'].set_visible(False)
+             ax_sub.patch.set_facecolor("none")
+             ax_sub.patch.set_alpha(0.1)
+             for r,bar in zip(cma,bars):
+                    bar.set_facecolor(r)
+        def plotzones():
+            plot_inset(2,ax, Pass(25), 94.5, 64)
+            plot_inset(2, ax, Pass(24), 94.5, 49)
+            plot_inset(2,ax, Pass(23), 94.5, 34)
+            plot_inset(2, ax, Pass(22), 94.5, 20)
+            plot_inset(2, ax, Pass(21), 94.5, 4)
+            plot_inset(2,ax, Pass(20), 73.5, 64)
+            plot_inset(2, ax, Pass(19), 73.5, 49)
+            plot_inset(2,ax, Pass(18), 73.5, 34)
+            plot_inset(2, ax, Pass(17), 73.5, 20)
+            plot_inset(2, ax, Pass(16), 73.5, 4)
+            plot_inset(2,ax, Pass(15), 52.5, 64)
+            plot_inset(2, ax, Pass(14), 52.5, 49)
+            plot_inset(2,ax, Pass(13), 52.5, 34)
+            plot_inset(2, ax, Pass(12), 52.5, 20)
+            plot_inset(2, ax, Pass(11), 52.5, 4)
+            plot_inset(2,ax, Pass(10), 31.5, 64)
+            plot_inset(2, ax, Pass(9), 31.5, 49)
+            plot_inset(2,ax, Pass(8), 31.5, 34)
+            plot_inset(2, ax, Pass(7), 31.5, 20)
+            plot_inset(2, ax, Pass(6), 31.5, 4)
+            plot_inset(2,ax, Pass(5), 10.5, 64)
+            plot_inset(2, ax, Pass(4), 10.5, 49)
+            plot_inset(2,ax, Pass(3), 10.5, 34)
+            plot_inset(2, ax, Pass(2), 10.5, 20)
+            plot_inset(2, ax, Pass(1), 10.5, 4)
+        plotzones()
+        
+        def numbers():
+            ax.annotate(25 ,xy=(94.5, 64), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+            ax.annotate(24 ,xy=(94.5, 49), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+            ax.annotate(23 ,xy=(94.5, 34), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+            ax.annotate(22 ,xy=(94.5, 20), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+            ax.annotate(21 ,xy=(94.5, 4), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+            ax.annotate(20 ,xy=(73.5, 64), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+            ax.annotate(19 ,xy=(73.5, 49), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+            ax.annotate(18 ,xy=(73.5, 34), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+            ax.annotate(17 ,xy=(73.5, 20), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+            ax.annotate(16 ,xy=(73.5, 4), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+            ax.annotate(15 ,xy=(52.5, 64), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+            ax.annotate(14 ,xy=(52.5, 49), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+            ax.annotate(13 ,xy=(52.5, 34), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+            ax.annotate(12 ,xy=(52.5, 20), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+            ax.annotate(11 ,xy=(52.5, 4), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+            ax.annotate(10 ,xy=(31.5, 64), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+            ax.annotate(9 ,xy=(31.5, 49), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+            ax.annotate(8 ,xy=(31.5, 34), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+            ax.annotate(7 ,xy=(31.5, 20), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+            ax.annotate(6 ,xy=(31.5, 4), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+            ax.annotate(5 ,xy=(10.5, 64), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+            ax.annotate(4 ,xy=(10.5, 49), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+            ax.annotate(3 ,xy=(10.5, 34), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+            ax.annotate(2 ,xy=(10.5, 20), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+            ax.annotate(1 ,xy=(10.5, 4), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+    
+        numbers()
+        
+        zo=12
+        def draw_pitch(pitch, line): 
+        # side and goal lines #
+            ly1 = [0,0,68,68,0]
+            lx1 = [0,105,105,0,0]
+            
+            ax.plot(lx1,ly1,color=line,zorder=5)
+            
+            
+            # boxes, 6 yard box and goals
+            
+                #outer boxes#
+            ly2 = [15.3,15.3,52.7,52.7] 
+            lx2 = [105,89.25,89.25,105]
+            ax.plot(lx2,ly2,color=line,zorder=5)
+            
+            ly3 = [15.3,15.3,52.7,52.7]  
+            lx3 = [0,15.75,15.75,0]
+            ax.plot(lx3,ly3,color=line,zorder=5)
+            
+                #goals#
+            ly4 = [30.6,30.6,37.4,37.4]
+            lx4 = [105,105.2,105.2,105]
+            ax.plot(lx4,ly4,color=line,zorder=5)
+            
+            ly5 = [30.6,30.6,37.4,37.4]
+            lx5 = [0,-0.2,-0.2,0]
+            ax.plot(lx5,ly5,color=line,zorder=5)
+            
+            
+               #6 yard boxes#
+            ly6 = [25.5,25.5,42.5,42.5]
+            lx6 = [105,99.75,99.75,105]
+            ax.plot(lx6,ly6,color=line,zorder=5)
+            
+            ly7 = [25.5,25.5,42.5,42.5]
+            lx7 = [0,5.25,5.25,0]
+            ax.plot(lx7,ly7,color=line,zorder=5)
+            
+            #Halfway line, penalty spots, and kickoff spot
+            ly8 = [0,68] 
+            lx8 = [52.5,52.5]
+            ax.plot(lx8,ly8,color=line,zorder=5)
+            
+            
+            ax.scatter(94.5,34,color=line,zorder=5, s=12)
+            ax.scatter(10.5,34,color=line,zorder=5, s=12)
+            ax.scatter(52.5,34,color=line,zorder=5, s=12)
+            
+            arc1 =  Arc((95.25,34),height=18.3,width=18.3,angle=0,theta1=130,theta2=230,color=line,zorder=zo+1)
+            arc2 = Arc((9.75,34),height=18.3,width=18.3,angle=0,theta1=310,theta2=50,color=line,zorder=zo+1)
+            circle1 = plt.Circle((52.5, 34), 9.15,ls='solid',lw=1.5,color=line, fill=False, zorder=2,alpha=1)
+            
+            ## Rectangles in boxes
+            rec1 = plt.Rectangle((89.25,20), 16,30,ls='-',color=pitch, zorder=1,alpha=1)
+            rec2 = plt.Rectangle((0, 20), 16.5,30,ls='-',color=pitch, zorder=1,alpha=1)
+            
+            ## Pitch rectangle
+            rec3 = plt.Rectangle((-0.5, -0.5), 106,69,ls='-',color=pitch, zorder=1,alpha=1)
+            
+            ## Add Direction of Play Arrow
+            DoP = ax.arrow(1.5, 1.5, 18-2, 1-1, head_width=1.2,
+                head_length=1.2,
+                color=line,
+                alpha=1,
+                length_includes_head=True, zorder=12, width=.3)
+            
+            ax.add_artist(rec3)
+            ax.add_artist(arc1)
+            ax.add_artist(arc2)
+            ax.add_artist(rec1)
+            ax.add_artist(rec2)
+            ax.add_artist(circle1)
+            ax.add_artist(DoP)
+            ax.axis('off')
+        draw_pitch('#B2B2B2', 'black')
+        ax.annotate('Bar Length =  # of Passes',xy=(95, 1), fontproperties=Annotate, color="black", ha="center", zorder=zo)
+        #ax.annotate('Wider Bar = Completing to Expectation',xy=(10, 68.5),fontproperties=Labels, color="black", ha="center", zorder=zo)
+        st.pyplot(fig)
+    AdvPassSonar(match_df)
+    
+    def BasicPassSonar(match_df):
+        Passes = match_df[match_df['ifSP'] != 1]
+        def Pass(zone):
+    
+            #local_df = Pass.copy(deep=True)
+            local_df = Passes[(Passes["Zone"]==zone)]
+            #local_df['Angle'] = np.arctan2((local_df['DestY'] - local_df['Y']), (local_df['DestX'] - local_df['X']))
+            local_df = pd.DataFrame(data=local_df, columns=['Angle', 'Length', 'ifPass', 'Team', 'Zone', 'ifComplete', 'xP'])
+            local_df = local_df.dropna(axis=1, how="all")
+    
+            for i in range(25):
+                local_df = local_df.append({'Angle': 0,'Length': 15,'ifPass': 0, 'Zone': i, 'ifComplete':0, 'xP':0}, ignore_index=True)
+            
+            df1 = local_df[['Angle','Length', 'ifPass']].copy()
+            
+            bins = np.linspace(-np.pi,np.pi,24)
+            df1['binned'] = pd.cut(local_df['Angle'], bins, include_lowest=True, right = True)
+            df1["Bin"] = df1["binned"].apply(lambda x: x.mid)
+            df1 = df1[:-1]
+ 
+            A= df1.groupby("Bin", as_index=False)["Length"].mean()
+            A = df1.groupby('Bin', as_index=False).agg({'ifPass' : 'sum', 'Length':'mean'}) 
+            A = A.dropna(0)
+            
+            return A
+        
+      
+        fig,ax = plt.subplots(figsize=(32,18))
+        plt.title(str(season)+' - '+str(team)+" PassSonar Color by Length", fontproperties=headers, color="black")
+        norm = plt.Normalize(0, 35) 
+        cmap = plt.cm.RdYlBu_r
+        sm = mpl.cm.ScalarMappable(cmap=cmap, norm=norm)
+        sm.set_array([])
+        cbar = fig.colorbar(sm, orientation="horizontal", fraction=0.046, pad=0.04)
+        cbar.ax.set_title('Mean Pass Length', fontproperties=footers, color='black')
+        
+        def plot_inset(width, axis_main, data, x,y):
+             ax_sub= inset_axes(axis_main, width=width, height=width, loc=10,
+                               bbox_to_anchor=(x,y),
+                               bbox_transform=axis_main.transData, 
+                               borderpad=0.0, axes_class=get_projection_class("polar"))
+             
+             #passdata = Passes[(Passes['Player'].str.contains(player))]
+             pasd = Passes.groupby("MatchID").agg({"Team": 'nunique'})
+             mp = pasd.sum()
+             totp = Passes.groupby("MatchID").agg({'ifPass':'sum'})
+             tp = totp.max()
+
+             
+             theta = data["Bin"]
+             radii = data["ifPass"]
+             length = np.array(data["Length"])
+             #data['xPR'] = data['ifComplete'] / data['xP']
+             cma = cmap(norm(length))
+             bars = ax_sub.bar(theta, radii, width=.265, edgecolor='black', linewidth=1.5, bottom=0)
+             ax_sub.set_xticklabels([])
+             ax_sub.set_yticklabels([])
+             #ax_sub.set_ylim(0,mp.sum()*3.5)
+             ax_sub.set_ylim(0,tp.sum()/50)
+             ax_sub.yaxis.grid(False)
+             ax_sub.xaxis.grid(False)
+             ax_sub.spines['polar'].set_visible(False)
+             ax_sub.patch.set_facecolor("none")
+             ax_sub.patch.set_alpha(0.1)
+             for r,bar in zip(cma,bars):
+                    bar.set_facecolor(r)
+        def plotzones():
+            plot_inset(2,ax, Pass(25), 94.5, 64)
+            plot_inset(2, ax, Pass(24), 94.5, 49)
+            plot_inset(2,ax, Pass(23), 94.5, 34)
+            plot_inset(2, ax, Pass(22), 94.5, 20)
+            plot_inset(2, ax, Pass(21), 94.5, 4)
+            plot_inset(2,ax, Pass(20), 73.5, 64)
+            plot_inset(2, ax, Pass(19), 73.5, 49)
+            plot_inset(2,ax, Pass(18), 73.5, 34)
+            plot_inset(2, ax, Pass(17), 73.5, 20)
+            plot_inset(2, ax, Pass(16), 73.5, 4)
+            plot_inset(2,ax, Pass(15), 52.5, 64)
+            plot_inset(2, ax, Pass(14), 52.5, 49)
+            plot_inset(2,ax, Pass(13), 52.5, 34)
+            plot_inset(2, ax, Pass(12), 52.5, 20)
+            plot_inset(2, ax, Pass(11), 52.5, 4)
+            plot_inset(2,ax, Pass(10), 31.5, 64)
+            plot_inset(2, ax, Pass(9), 31.5, 49)
+            plot_inset(2,ax, Pass(8), 31.5, 34)
+            plot_inset(2, ax, Pass(7), 31.5, 20)
+            plot_inset(2, ax, Pass(6), 31.5, 4)
+            plot_inset(2,ax, Pass(5), 10.5, 64)
+            plot_inset(2, ax, Pass(4), 10.5, 49)
+            plot_inset(2,ax, Pass(3), 10.5, 34)
+            plot_inset(2, ax, Pass(2), 10.5, 20)
+            plot_inset(2, ax, Pass(1), 10.5, 4)
+        plotzones()
+        
+        def numbers():
+            ax.annotate(25 ,xy=(94.5, 64), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+            ax.annotate(24 ,xy=(94.5, 49), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+            ax.annotate(23 ,xy=(94.5, 34), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+            ax.annotate(22 ,xy=(94.5, 20), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+            ax.annotate(21 ,xy=(94.5, 4), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+            ax.annotate(20 ,xy=(73.5, 64), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+            ax.annotate(19 ,xy=(73.5, 49), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+            ax.annotate(18 ,xy=(73.5, 34), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+            ax.annotate(17 ,xy=(73.5, 20), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+            ax.annotate(16 ,xy=(73.5, 4), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+            ax.annotate(15 ,xy=(52.5, 64), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+            ax.annotate(14 ,xy=(52.5, 49), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+            ax.annotate(13 ,xy=(52.5, 34), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+            ax.annotate(12 ,xy=(52.5, 20), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+            ax.annotate(11 ,xy=(52.5, 4), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+            ax.annotate(10 ,xy=(31.5, 64), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+            ax.annotate(9 ,xy=(31.5, 49), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+            ax.annotate(8 ,xy=(31.5, 34), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+            ax.annotate(7 ,xy=(31.5, 20), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+            ax.annotate(6 ,xy=(31.5, 4), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+            ax.annotate(5 ,xy=(10.5, 64), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+            ax.annotate(4 ,xy=(10.5, 49), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+            ax.annotate(3 ,xy=(10.5, 34), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+            ax.annotate(2 ,xy=(10.5, 20), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+            ax.annotate(1 ,xy=(10.5, 4), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+    
+        numbers()
+        
+        zo=12
+        def draw_pitch(pitch, line): 
+        # side and goal lines #
+            ly1 = [0,0,68,68,0]
+            lx1 = [0,105,105,0,0]
+            
+            ax.plot(lx1,ly1,color=line,zorder=5)
+            
+            
+            # boxes, 6 yard box and goals
+            
+                #outer boxes#
+            ly2 = [15.3,15.3,52.7,52.7] 
+            lx2 = [105,89.25,89.25,105]
+            ax.plot(lx2,ly2,color=line,zorder=5)
+            
+            ly3 = [15.3,15.3,52.7,52.7]  
+            lx3 = [0,15.75,15.75,0]
+            ax.plot(lx3,ly3,color=line,zorder=5)
+            
+                #goals#
+            ly4 = [30.6,30.6,37.4,37.4]
+            lx4 = [105,105.2,105.2,105]
+            ax.plot(lx4,ly4,color=line,zorder=5)
+            
+            ly5 = [30.6,30.6,37.4,37.4]
+            lx5 = [0,-0.2,-0.2,0]
+            ax.plot(lx5,ly5,color=line,zorder=5)
+            
+            
+               #6 yard boxes#
+            ly6 = [25.5,25.5,42.5,42.5]
+            lx6 = [105,99.75,99.75,105]
+            ax.plot(lx6,ly6,color=line,zorder=5)
+            
+            ly7 = [25.5,25.5,42.5,42.5]
+            lx7 = [0,5.25,5.25,0]
+            ax.plot(lx7,ly7,color=line,zorder=5)
+            
+            #Halfway line, penalty spots, and kickoff spot
+            ly8 = [0,68] 
+            lx8 = [52.5,52.5]
+            ax.plot(lx8,ly8,color=line,zorder=5)
+            
+            
+            ax.scatter(94.5,34,color=line,zorder=5, s=12)
+            ax.scatter(10.5,34,color=line,zorder=5, s=12)
+            ax.scatter(52.5,34,color=line,zorder=5, s=12)
+            
+            arc1 =  Arc((95.25,34),height=18.3,width=18.3,angle=0,theta1=130,theta2=230,color=line,zorder=zo+1)
+            arc2 = Arc((9.75,34),height=18.3,width=18.3,angle=0,theta1=310,theta2=50,color=line,zorder=zo+1)
+            circle1 = plt.Circle((52.5, 34), 9.15,ls='solid',lw=1.5,color=line, fill=False, zorder=2,alpha=1)
+            
+            ## Rectangles in boxes
+            rec1 = plt.Rectangle((89.25,20), 16,30,ls='-',color=pitch, zorder=1,alpha=1)
+            rec2 = plt.Rectangle((0, 20), 16.5,30,ls='-',color=pitch, zorder=1,alpha=1)
+            
+            ## Pitch rectangle
+            rec3 = plt.Rectangle((-0.5, -0.5), 106,69,ls='-',color=pitch, zorder=1,alpha=1)
+            
+            ## Add Direction of Play Arrow
+            DoP = ax.arrow(1.5, 1.5, 18-2, 1-1, head_width=1.2,
+                head_length=1.2,
+                color=line,
+                alpha=1,
+                length_includes_head=True, zorder=12, width=.3)
+            
+            ax.add_artist(rec3)
+            ax.add_artist(arc1)
+            ax.add_artist(arc2)
+            ax.add_artist(rec1)
+            ax.add_artist(rec2)
+            ax.add_artist(circle1)
+            ax.add_artist(DoP)
+            ax.axis('off')
+        draw_pitch('#B2B2B2', 'black')
+        ax.annotate('Bar Length =  # of Passes',xy=(95, 1), fontproperties=Annotate, color="black", ha="center", zorder=zo)
+        st.pyplot(fig)
+    BasicPassSonar(match_df)
+    
+    
+    zone = st.sidebar.multiselect('Select Zone', natsorted(match_df.Zone.unique()))
+    zone_df = match_df[match_df['Zone'].isin(zone)]
+
+
+    retain = zone_df[(zone_df['ifRetain'] == 1) & (zone_df['ifSP'] != 1)]
+    incornret = zone_df[(zone_df['ifRetain'] != 1) & (zone_df['ifSP'] != 1)]
+
+
+    xS = retain["X"]
+    yS = retain["Y"]
+    xE = retain["DestX"]
+    yE = retain["DestY"]
+    xS1 = incornret["X"]
+    yS1 = incornret["Y"]
+    xE1 = incornret["DestX"]
+    yE1 = incornret["DestY"]
+    xP = match_df['xP']
+
+    fig,ax = plt.subplots(figsize=(22,16))
+    horizfull_pitch('white', 'black', ax)
+   
+    for i in range(len(retain)):
+        plt.arrow(xS.iloc[i], yS.iloc[i],  xE.iloc[i]-xS.iloc[i], (yE.iloc[i])-(yS.iloc[i]),  width=xP.iloc[i], head_width=xP.iloc[i]*2,
+           head_length=xP.iloc[i]*2,
+           color='lime',
+           alpha=1,
+           length_includes_head=True, zorder=zo)
+    for i in range(len(incornret)):
+        plt.arrow(xS1.iloc[i], yS1.iloc[i],  xE1.iloc[i]-xS1.iloc[i], (yE1.iloc[i])-(yS1.iloc[i]),  width=xP.iloc[i], head_width=xP.iloc[i]*2,
+           head_length=xP.iloc[i]*2,
+           color="dodgerblue" if incornret.iloc[i]["ifComplete"] == 1
+           else "red", alpha=1,length_includes_head=True, zorder=zo)
+
+    plt.title(str(season)+' - '+str(team)+" Passes in Zone "+str(zone), fontproperties=headers, color="black")
+    #plt.annotate(str(round(sum(pass_data.PP),2))+" Progressive Passes",color="white", xy=(44, -2), size = 10, ha="center", weight="bold", zorder=zo)
+    #plt.annotate(str(round(sum(pass_data.DP),2))+" Deep Progressions",color="white", xy=(44, -4), size = 10, ha="center", weight="bold", zorder=zo)
+    #plt.annotate(str(round(sum(pass_data.xP),2))+" xP",color="white", xy=(24, -2), size = 10, ha="center", weight="bold", zorder=zo)
+    #plt.annotate(str(round(sum(pass_data.ifComplete),))+' / '+str(round(sum(pass_data.PassesAttempted),))+" Passes",color="white", xy=(24, -4), size = 10, ha="center", weight="bold", zorder=zo)     
+    #plt.annotate("Bigger Arrow  = Higher xP",color="white", xy=(6, 107.5), size = 10, ha="center", weight="bold", zorder=zo)              
+    plt.plot(-2,color="lime",label="Retain",zorder=0)
+    plt.plot(-2,color="dodgerblue",label="Complete",zorder=0)
+    plt.plot(-2,color="red",label="Incomplete",zorder=0)
+    #plt.plot(-2,color="gold",label="Assist",zorder=0)
+    leg = plt.legend(loc=0, ncol=3,frameon=False)
+    plt.setp(leg.get_texts(), color='black', fontproperties=Labels)
+    st.pyplot(fig)
+
 
 def TeamShot(state):
     sm_df = load_sm_data()
@@ -4513,6 +5003,328 @@ def TeamPassingEngine(state):
 
         
     st.pyplot(fig)
+def OppPassingEngine(state):    
+    sm_df = load_sm_data()
+    
+    team = st.sidebar.multiselect('Select Team(s)', natsorted(sm_df.Team.unique()))
+    sm_df = sm_df[sm_df['Team'].isin(team)]
+    
+    
+    season = st.sidebar.multiselect('Select Season(s)',natsorted(sm_df.Season.unique()))  
+    sm_df = sm_df[sm_df['Season'].isin(season)]
+    
+    pass_df = load_pass_data(season, team, 'yes')
+    
+    matches = (pass_df.MatchName.unique()).tolist()
+    
+    match = st.sidebar.multiselect("Select Match(es)", natsorted(pass_df.MatchName.unique()), default=matches)
+    match_df = pass_df[pass_df['MatchName'].isin(match)]
+    
+    zone = st.sidebar.selectbox('Select Start Zone', natsorted(match_df.Zone.unique()))  
+    zone_df = match_df[match_df['Zone'] == zone]
+
+
+    st.header("Team Passes From/To Pitch Zones")  
+    st.subheader("Passes From Zone, Passes to Zones")    
+    st.text("")
+
+
+    fig,ax = plt.subplots(figsize=(32,18))
+    plt.title(str(season)+' - '+str(team)+" Passing from Start Zone "+str(zone), fontproperties=headers, color="black")
+
+    def numbers():
+        ax.annotate(25 ,xy=(94.5, 64), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+        ax.annotate(24 ,xy=(94.5, 49), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+        ax.annotate(23 ,xy=(94.5, 34), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+        ax.annotate(22 ,xy=(94.5, 20), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+        ax.annotate(21 ,xy=(94.5, 4), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+        ax.annotate(20 ,xy=(73.5, 64), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+        ax.annotate(19 ,xy=(73.5, 49), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+        ax.annotate(18 ,xy=(73.5, 34), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+        ax.annotate(17 ,xy=(73.5, 20), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+        ax.annotate(16 ,xy=(73.5, 4), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+        ax.annotate(15 ,xy=(52.5, 64), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+        ax.annotate(14 ,xy=(52.5, 49), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+        ax.annotate(13 ,xy=(52.5, 34), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+        ax.annotate(12 ,xy=(52.5, 20), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+        ax.annotate(11 ,xy=(52.5, 4), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+        ax.annotate(10 ,xy=(31.5, 64), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+        ax.annotate(9 ,xy=(31.5, 49), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+        ax.annotate(8 ,xy=(31.5, 34), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+        ax.annotate(7 ,xy=(31.5, 20), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+        ax.annotate(6 ,xy=(31.5, 4), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+        ax.annotate(5 ,xy=(10.5, 64), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+        ax.annotate(4 ,xy=(10.5, 49), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+        ax.annotate(3 ,xy=(10.5, 34), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+        ax.annotate(2 ,xy=(10.5, 20), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+        ax.annotate(1 ,xy=(10.5, 4), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+
+    numbers()
+    
+    zo=12
+    def draw_pitch(pitch, line): 
+    # side and goal lines #
+        ly1 = [0,0,68,68,0]
+        lx1 = [0,105,105,0,0]
+        
+        ax.plot(lx1,ly1,color=line,zorder=5)
+        
+        
+        # boxes, 6 yard box and goals
+        
+            #outer boxes#
+        ly2 = [15.3,15.3,52.7,52.7] 
+        lx2 = [105,89.25,89.25,105]
+        ax.plot(lx2,ly2,color=line,zorder=5)
+        
+        ly3 = [15.3,15.3,52.7,52.7]  
+        lx3 = [0,15.75,15.75,0]
+        ax.plot(lx3,ly3,color=line,zorder=5)
+        
+            #goals#
+        ly4 = [30.6,30.6,37.4,37.4]
+        lx4 = [105,105.2,105.2,105]
+        ax.plot(lx4,ly4,color=line,zorder=5)
+        
+        ly5 = [30.6,30.6,37.4,37.4]
+        lx5 = [0,-0.2,-0.2,0]
+        ax.plot(lx5,ly5,color=line,zorder=5)
+        
+        
+           #6 yard boxes#
+        ly6 = [25.5,25.5,42.5,42.5]
+        lx6 = [105,99.75,99.75,105]
+        ax.plot(lx6,ly6,color=line,zorder=5)
+        
+        ly7 = [25.5,25.5,42.5,42.5]
+        lx7 = [0,5.25,5.25,0]
+        ax.plot(lx7,ly7,color=line,zorder=5)
+        
+        #Halfway line, penalty spots, and kickoff spot
+        ly8 = [0,68] 
+        lx8 = [52.5,52.5]
+        ax.plot(lx8,ly8,color=line,zorder=5)
+        
+        
+        ax.scatter(94.5,34,color=line,zorder=5, s=12)
+        ax.scatter(10.5,34,color=line,zorder=5, s=12)
+        ax.scatter(52.5,34,color=line,zorder=5, s=12)
+        
+        arc1 =  Arc((95.25,34),height=18.3,width=18.3,angle=0,theta1=130,theta2=230,color=line,zorder=zo+1)
+        arc2 = Arc((9.75,34),height=18.3,width=18.3,angle=0,theta1=310,theta2=50,color=line,zorder=zo+1)
+        circle1 = plt.Circle((52.5, 34), 9.15,ls='solid',lw=1.5,color=line, fill=False, zorder=2,alpha=1)
+        
+        ## Rectangles in boxes
+        rec1 = plt.Rectangle((89.25,20), 16,30,ls='-',color=pitch, zorder=1,alpha=1)
+        rec2 = plt.Rectangle((0, 20), 16.5,30,ls='-',color=pitch, zorder=1,alpha=1)
+        
+        ## Pitch rectangle
+        rec3 = plt.Rectangle((-5, -5), 115,78,ls='-',color=pitch, zorder=1,alpha=1)
+        
+        ## Add Direction of Play Arrow
+        DoP = ax.arrow(1.5, 1.5, 18-2, 1-1, head_width=1.2,
+            head_length=1.2,
+            color=line,
+            alpha=1,
+            length_includes_head=True, zorder=12, width=.3)
+        
+        ax.add_artist(rec3)
+        ax.add_artist(arc1)
+        ax.add_artist(arc2)
+        ax.add_artist(rec1)
+        ax.add_artist(rec2)
+        ax.add_artist(circle1)
+        ax.add_artist(DoP)
+        ax.axis('off')
+    draw_pitch('#B2B2B2', 'black')
+    plt.xlim(-.5,105.5)
+    plt.ylim(-.5,68.5)
+    
+    #df = season_df
+    df = zone_df[zone_df['ifSP'] != 1]
+    df = df.groupby(["Zone", "DestZone"], as_index=False).agg({
+        "ifPass": 'sum', 'ifComplete': 'sum', 'xP':'sum', 'MatchID':'nunique',
+        "X":'mean', 'Y':'mean', 'DestX':'mean', 'DestY':'mean'}).sort_values(by='ifPass', ascending=False)
+
+    xS = df["X"]
+    yS = df["Y"]
+    xE = df["DestX"]
+    yE = df["DestY"]
+
+    #opta/mckeever blue hex code #2f3653 & #82868f
+    #plt.title(str(Season)+' - '+str(Player)+' - xA Map', color='white', size=30, weight='bold')
+    
+    norm = TwoSlopeNorm(vmin=df.ifPass.min(),vcenter=df.ifPass.mean(),vmax=df.ifPass.max())
+    for i in range(len(df)):
+        plt.annotate('',xy=(xS.iloc[i], yS.iloc[i]), xycoords='data', xytext=(xE.iloc[i], yE.iloc[i]),textcoords='data',
+                   arrowprops=dict(arrowstyle='wedge', connectionstyle='arc3', color='#333333', lw=5))
+        plt.scatter(xE.iloc[i], yE.iloc[i],zorder=zo+2,c=df.ifPass.iloc[i], 
+                    cmap="RdYlBu_r", edgecolor='white', marker='o', linewidths=7.5, 
+                    s=df.ifPass.iloc[i]*75, norm=norm)
+        plt.scatter(xE.iloc[i],yE.iloc[i],marker='o',facecolors="none",
+            s=df.ifPass.iloc[i]*75,edgecolors="black",zorder=zo+3, linewidth=1.5, norm=norm)
+
+    
+    cax = plt.axes([0.175, 0.065, 0.675, 0.025])
+    sm = plt.cm.ScalarMappable(cmap='RdYlBu_r', norm=TwoSlopeNorm(vmin=df.ifPass.min(),vcenter=df.ifPass.mean(),vmax=df.ifPass.max()))
+    sm.A = []
+    cbar = fig.colorbar(sm, cax=cax, orientation='horizontal', fraction=0.046, pad=0.04)
+    cbar.set_label('Number of Pases', fontproperties=TableHead)
+    cbar.ax.tick_params(labelsize=20)
+
+        
+    st.pyplot(fig)
+    
+    destzone = st.sidebar.selectbox('Select Destination Zone', natsorted(match_df.DestZone.unique()))  
+    destzone_df = match_df[match_df['DestZone'] == destzone]
+
+
+    fig,ax = plt.subplots(figsize=(32,18))
+    plt.title(str(season)+' - '+str(team)+" Passing to Destination Zone "+str(destzone), fontproperties=headers, color="black")
+
+    def numbers():
+        ax.annotate(25 ,xy=(94.5, 64), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+        ax.annotate(24 ,xy=(94.5, 49), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+        ax.annotate(23 ,xy=(94.5, 34), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+        ax.annotate(22 ,xy=(94.5, 20), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+        ax.annotate(21 ,xy=(94.5, 4), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+        ax.annotate(20 ,xy=(73.5, 64), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+        ax.annotate(19 ,xy=(73.5, 49), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+        ax.annotate(18 ,xy=(73.5, 34), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+        ax.annotate(17 ,xy=(73.5, 20), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+        ax.annotate(16 ,xy=(73.5, 4), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+        ax.annotate(15 ,xy=(52.5, 64), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+        ax.annotate(14 ,xy=(52.5, 49), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+        ax.annotate(13 ,xy=(52.5, 34), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+        ax.annotate(12 ,xy=(52.5, 20), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+        ax.annotate(11 ,xy=(52.5, 4), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+        ax.annotate(10 ,xy=(31.5, 64), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+        ax.annotate(9 ,xy=(31.5, 49), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+        ax.annotate(8 ,xy=(31.5, 34), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+        ax.annotate(7 ,xy=(31.5, 20), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+        ax.annotate(6 ,xy=(31.5, 4), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+        ax.annotate(5 ,xy=(10.5, 64), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+        ax.annotate(4 ,xy=(10.5, 49), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+        ax.annotate(3 ,xy=(10.5, 34), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+        ax.annotate(2 ,xy=(10.5, 20), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+        ax.annotate(1 ,xy=(10.5, 4), color="black", ha="center", zorder=20, fontproperties=PitchNumbers, alpha=.2)
+
+    numbers()
+    
+    zo=12
+    def draw_pitch(pitch, line): 
+    # side and goal lines #
+        ly1 = [0,0,68,68,0]
+        lx1 = [0,105,105,0,0]
+        
+        ax.plot(lx1,ly1,color=line,zorder=5)
+        
+        
+        # boxes, 6 yard box and goals
+        
+            #outer boxes#
+        ly2 = [15.3,15.3,52.7,52.7] 
+        lx2 = [105,89.25,89.25,105]
+        ax.plot(lx2,ly2,color=line,zorder=5)
+        
+        ly3 = [15.3,15.3,52.7,52.7]  
+        lx3 = [0,15.75,15.75,0]
+        ax.plot(lx3,ly3,color=line,zorder=5)
+        
+            #goals#
+        ly4 = [30.6,30.6,37.4,37.4]
+        lx4 = [105,105.2,105.2,105]
+        ax.plot(lx4,ly4,color=line,zorder=5)
+        
+        ly5 = [30.6,30.6,37.4,37.4]
+        lx5 = [0,-0.2,-0.2,0]
+        ax.plot(lx5,ly5,color=line,zorder=5)
+        
+        
+           #6 yard boxes#
+        ly6 = [25.5,25.5,42.5,42.5]
+        lx6 = [105,99.75,99.75,105]
+        ax.plot(lx6,ly6,color=line,zorder=5)
+        
+        ly7 = [25.5,25.5,42.5,42.5]
+        lx7 = [0,5.25,5.25,0]
+        ax.plot(lx7,ly7,color=line,zorder=5)
+        
+        #Halfway line, penalty spots, and kickoff spot
+        ly8 = [0,68] 
+        lx8 = [52.5,52.5]
+        ax.plot(lx8,ly8,color=line,zorder=5)
+        
+        
+        ax.scatter(94.5,34,color=line,zorder=5, s=12)
+        ax.scatter(10.5,34,color=line,zorder=5, s=12)
+        ax.scatter(52.5,34,color=line,zorder=5, s=12)
+        
+        arc1 =  Arc((95.25,34),height=18.3,width=18.3,angle=0,theta1=130,theta2=230,color=line,zorder=zo+1)
+        arc2 = Arc((9.75,34),height=18.3,width=18.3,angle=0,theta1=310,theta2=50,color=line,zorder=zo+1)
+        circle1 = plt.Circle((52.5, 34), 9.15,ls='solid',lw=1.5,color=line, fill=False, zorder=2,alpha=1)
+        
+        ## Rectangles in boxes
+        rec1 = plt.Rectangle((89.25,20), 16,30,ls='-',color=pitch, zorder=1,alpha=1)
+        rec2 = plt.Rectangle((0, 20), 16.5,30,ls='-',color=pitch, zorder=1,alpha=1)
+        
+        ## Pitch rectangle
+        rec3 = plt.Rectangle((-5, -5), 115,78,ls='-',color=pitch, zorder=1,alpha=1)
+        
+        ## Add Direction of Play Arrow
+        DoP = ax.arrow(1.5, 1.5, 18-2, 1-1, head_width=1.2,
+            head_length=1.2,
+            color=line,
+            alpha=1,
+            length_includes_head=True, zorder=12, width=.3)
+        
+        ax.add_artist(rec3)
+        ax.add_artist(arc1)
+        ax.add_artist(arc2)
+        ax.add_artist(rec1)
+        ax.add_artist(rec2)
+        ax.add_artist(circle1)
+        ax.add_artist(DoP)
+        ax.axis('off')
+    draw_pitch('#B2B2B2', 'black')
+    plt.xlim(-.5,105.5)
+    plt.ylim(-.5,68.5)
+    
+    #df = season_df
+    df = destzone_df[destzone_df['ifSP'] != 1]
+    df = df.groupby(["Zone", "DestZone"], as_index=False).agg({
+        "ifPass": 'sum', 'ifComplete': 'sum', 'xP':'sum', 'MatchID':'nunique',
+        "X":'mean', 'Y':'mean', 'DestX':'mean', 'DestY':'mean'}).sort_values(by='ifPass', ascending=False)
+
+    xS = df["X"]
+    yS = df["Y"]
+    xE = df["DestX"]
+    yE = df["DestY"]
+
+    #opta/mckeever blue hex code #2f3653 & #82868f
+    #plt.title(str(Season)+' - '+str(Player)+' - xA Map', color='white', size=30, weight='bold')
+    
+    norm = TwoSlopeNorm(vmin=df.ifPass.min(),vcenter=df.ifPass.mean(),vmax=df.ifPass.max())
+    for i in range(len(df)):
+        plt.annotate('',xy=(xS.iloc[i], yS.iloc[i]), xycoords='data', xytext=(xE.iloc[i], yE.iloc[i]),textcoords='data',
+                   arrowprops=dict(arrowstyle='wedge', connectionstyle='arc3', color='#333333', lw=5))
+        plt.scatter(xS.iloc[i], yS.iloc[i],zorder=zo+2,c=df.ifPass.iloc[i], 
+                    cmap="RdYlBu_r", edgecolor='white', marker='o', linewidths=7.5, 
+                    s=df.ifPass.iloc[i]*75, norm=norm)
+        plt.scatter(xS.iloc[i],yS.iloc[i],marker='o',facecolors="none",
+            s=df.ifPass.iloc[i]*75,edgecolors="black",zorder=zo+3, linewidth=1.5, norm=norm)
+
+    
+    cax = plt.axes([0.175, 0.065, 0.675, 0.025])
+    sm = plt.cm.ScalarMappable(cmap='RdYlBu_r', norm=TwoSlopeNorm(vmin=df.ifPass.min(),vcenter=df.ifPass.mean(),vmax=df.ifPass.max()))
+    sm.A = []
+    cbar = fig.colorbar(sm, cax=cax, orientation='horizontal', fraction=0.046, pad=0.04)
+    cbar.set_label('Number of Pases', fontproperties=TableHead)
+    cbar.ax.tick_params(labelsize=20)
+
+        
+    st.pyplot(fig)
+
 
 def PlayerPassingEngine(state):
     sm_df = load_sm_data()
